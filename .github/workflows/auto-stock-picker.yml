@@ -2,8 +2,8 @@ name: 每日自动选股 + 分析
 
 on:
   schedule:
-    # 工作日早上 8:30 自动选股（北京时间 8:30 = UTC 0:30）
-    - cron: '30 0 * * 1-5'
+    # 工作日晚上 8:30 自动运行（北京时间，比原设计更稳定）
+    - cron: '30 12 * * 1-5'
   workflow_dispatch:
     inputs:
       max_stocks:
@@ -14,6 +14,8 @@ on:
 jobs:
   stock-picker:
     runs-on: ubuntu-latest
+    outputs:
+      stock_list: ${{ steps.stock-list.outputs.stock_list }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,7 +27,7 @@ jobs:
       
       - name: Install dependencies
         run: pip install akshare pandas
-      
+
       - name: Run stock picker
         run: python stock_picker.py
       
@@ -37,7 +39,9 @@ jobs:
           echo "📋 选股结果: $STOCK_LIST"
       
       - name: Show detail results
-        run: cat selected_stocks_detail.csv
+        run: |
+          echo "📊 详细筛选结果:"
+          cat selected_stocks_detail.csv 2>/dev/null || echo "无详细数据"
 
   daily-analysis:
     needs: stock-picker
@@ -46,15 +50,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Set stock list from picker
-        env:
-          STOCK_LIST: ${{ needs.stock-picker.outputs.stock_list }}
-        run: |
-          echo "STOCK_LIST=$STOCK_LIST" >> $GITHUB_ENV
-      
-      - name: Run daily analysis
-        uses: ./
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Run daily analysis
         env:
-          STOCK_LIST: ${{ env.STOCK_LIST }}
+          STOCK_LIST: ${{ needs.stock-picker.outputs.stock_list }}
+          # 以下是你需要配置的 Secrets
+          ANSPIRE_API_KEYS: ${{ secrets.ANSPIRE_API_KEYS }}
+          WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}
+        run: |
+          echo "📋 本次分析股票列表: $STOCK_LIST"
+          python main.py --stocks "$STOCK_LIST" --schedule
