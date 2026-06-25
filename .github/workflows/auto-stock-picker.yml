@@ -2,38 +2,59 @@ name: 每日自动选股 + 分析
 
 on:
   schedule:
-    # 每天早上 8:30 自动运行（收盘后筛选）
-    - cron: '30 0 * * 1-5'  # 北京时间 8:30
-  workflow_dispatch:  # 手动触发
+    # 工作日早上 8:30 自动选股（北京时间 8:30 = UTC 0:30）
+    - cron: '30 0 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      max_stocks:
+        description: '最多筛选股票数'
+        required: false
+        default: '20'
 
 jobs:
   stock-picker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
       
-      - name: 设置 Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
-      - name: 安装依赖
+      - name: Install dependencies
         run: pip install akshare pandas
       
-      - name: 运行选股脚本
+      - name: Run stock picker
         run: python stock_picker.py
       
-      - name: 读取选股结果
+      - name: Read stock list
         id: stock-list
         run: |
-          STOCK_LIST=$(cat stock_list.txt | grep "^STOCK_LIST=" | cut -d= -f2)
+          STOCK_LIST=$(grep "^STOCK_LIST=" selected_stocks.txt | cut -d= -f2)
           echo "stock_list=$STOCK_LIST" >> $GITHUB_OUTPUT
+          echo "📋 选股结果: $STOCK_LIST"
       
-      - name: 更新 Secrets 并触发分析
+      - name: Show detail results
+        run: cat selected_stocks_detail.csv
+
+  daily-analysis:
+    needs: stock-picker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set stock list from picker
         env:
-          STOCK_LIST: ${{ steps.stock-list.outputs.stock_list }}
+          STOCK_LIST: ${{ needs.stock-picker.outputs.stock_list }}
         run: |
-          # 更新 Secrets（需要用 gh cli）
-          gh secret set STOCK_LIST --body "$STOCK_LIST"
-          # 触发分析 workflow
-          gh workflow run daily_analysis.yml
+          echo "STOCK_LIST=$STOCK_LIST" >> $GITHUB_ENV
+      
+      - name: Run daily analysis
+        uses: ./
+        with:
+          python-version: '3.11'
+        env:
+          STOCK_LIST: ${{ env.STOCK_LIST }}
