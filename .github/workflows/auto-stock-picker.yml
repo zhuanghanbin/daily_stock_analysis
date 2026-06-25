@@ -1,0 +1,39 @@
+name: 每日自动选股 + 分析
+
+on:
+  schedule:
+    # 每天早上 8:30 自动运行（收盘后筛选）
+    - cron: '30 0 * * 1-5'  # 北京时间 8:30
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  stock-picker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 安装依赖
+        run: pip install akshare pandas
+      
+      - name: 运行选股脚本
+        run: python stock_picker.py
+      
+      - name: 读取选股结果
+        id: stock-list
+        run: |
+          STOCK_LIST=$(cat stock_list.txt | grep "^STOCK_LIST=" | cut -d= -f2)
+          echo "stock_list=$STOCK_LIST" >> $GITHUB_OUTPUT
+      
+      - name: 更新 Secrets 并触发分析
+        env:
+          STOCK_LIST: ${{ steps.stock-list.outputs.stock_list }}
+        run: |
+          # 更新 Secrets（需要用 gh cli）
+          gh secret set STOCK_LIST --body "$STOCK_LIST"
+          # 触发分析 workflow
+          gh workflow run daily_analysis.yml
